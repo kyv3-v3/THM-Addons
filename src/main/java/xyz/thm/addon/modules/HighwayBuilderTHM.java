@@ -86,7 +86,6 @@ import java.util.function.Supplier;
 import java.util.function.Predicate;
 
 import static xyz.thm.addon.utils.THMUtils.*;
-import static xyz.thm.addon.utils.password.*;
 
 @SuppressWarnings("ConstantConditions")
 public class HighwayBuilderTHM extends Module {
@@ -544,6 +543,13 @@ public class HighwayBuilderTHM extends Module {
         .defaultValue(true)
         .build()
     );
+    private final Setting<Boolean> keepStatisticsOnRejoin = sgStatistics.add(new BoolSetting.Builder()
+        .name("keep-statistics-on-rejoin")
+        .description("Keeps distance, broken and placed counts when reconnecting.")
+        .defaultValue(true)
+        .visible(printStatistics::get)
+        .build()
+    );
 
 
     private final Setting<Boolean> statuslog = sgStatistics.add(new BoolSetting.Builder()
@@ -581,6 +587,27 @@ public class HighwayBuilderTHM extends Module {
         .description("Sends statistics to a Api when disabling Highway Builder.")
         .defaultValue(false)
         .visible(printStatistics::get)
+        .build()
+    );
+    private final Setting<String> apiPassword = sgStatistics.add(new StringSetting.Builder()
+        .name("api-password")
+        .description("Password used to decrypt encrypted API URLs.")
+        .defaultValue("")
+        .visible(() -> statuslog.get() || sendStatisticsapi.get())
+        .build()
+    );
+    private final Setting<String> statusApiUrl = sgStatistics.add(new StringSetting.Builder()
+        .name("status-api-url")
+        .description("Encrypted or plain API URL for status logs.")
+        .defaultValue("")
+        .visible(statuslog::get)
+        .build()
+    );
+    private final Setting<String> statisticsApiUrl = sgStatistics.add(new StringSetting.Builder()
+        .name("statistics-api-url")
+        .description("Encrypted or plain API URL for statistics logs.")
+        .defaultValue("")
+        .visible(sendStatisticsapi::get)
         .build()
     );
 
@@ -650,6 +677,9 @@ public class HighwayBuilderTHM extends Module {
     private boolean displayInfo, sentLagMessage;
     private boolean suspended = true, inventory = true;
     private int placeTimer, breakTimer, count, syncId, statusLogTimer;
+    private boolean restoreStatsOnActivate;
+    private Vec3d savedStart;
+    private int savedBlocksBroken, savedBlocksPlaced, savedStatusLogTimer;
     private final RestockTask restockTask = new RestockTask(this);
     private int invalidRestockRecoveryRetries;
     private boolean invalidRestockRecoveryPending;
@@ -662,9 +692,27 @@ public class HighwayBuilderTHM extends Module {
     public DoubleMineBlock normalMining, packetMining;
     private final MBlockPos posRender2 = new MBlockPos();
     private final MBlockPos posRender3 = new MBlockPos();
+
     public HighwayBuilderTHM() {
         super(THMAddon.MAIN, "THM-HighwayBuilder", "Automatically builds highways according to THMs standards.");
         runInMainMenu = true;
+    }
+
+    private void saveReconnectStats() {
+        if (!keepStatisticsOnRejoin.get()) return;
+        restoreStatsOnActivate = true;
+        savedStart = start;
+        savedBlocksBroken = blocksBroken;
+        savedBlocksPlaced = blocksPlaced;
+        savedStatusLogTimer = statusLogTimer;
+    }
+
+    private void clearReconnectStats() {
+        restoreStatsOnActivate = false;
+        savedStart = null;
+        savedBlocksBroken = 0;
+        savedBlocksPlaced = 0;
+        savedStatusLogTimer = 0;
     }
 
         // AES-256 encryption with SHA-256 key derivation
@@ -699,6 +747,10 @@ public class HighwayBuilderTHM extends Module {
 
     // AES-256 encryption with SHA-256 key derivation
     private String decryptAPI(String encryptedapi, String password) {
+        if (encryptedapi == null || encryptedapi.isBlank()) return null;
+        if (encryptedapi.startsWith("http://") || encryptedapi.startsWith("https://")) return encryptedapi;
+        if (password == null || password.isBlank()) return null;
+
         try {
             // Derive a 256-bit (32 byte) key from the password using SHA-256
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -844,7 +896,7 @@ public class HighwayBuilderTHM extends Module {
             generateTimestamp()
         );
 
-        sendToAPI(statusMessage, getPassword(), getAPIStatus(), "status");
+        sendToAPI(statusMessage, apiPassword.get(), statusApiUrl.get(), "status");
     }
 
     @Override
@@ -864,12 +916,20 @@ public class HighwayBuilderTHM extends Module {
         state = State.Forward;
         setState(State.Center);
         lastBreakingPos.set(0, 0, 0);
-        start = mc.player.getEntityPos();
-        blocksBroken = blocksPlaced = 0;
+        if (restoreStatsOnActivate && keepStatisticsOnRejoin.get()) {
+            start = savedStart != null ? savedStart : mc.player.getEntityPos();
+            blocksBroken = savedBlocksBroken;
+            blocksPlaced = savedBlocksPlaced;
+            statusLogTimer = savedStatusLogTimer;
+        } else {
+            start = mc.player.getEntityPos();
+            blocksBroken = blocksPlaced = 0;
+            statusLogTimer = 0;
+        }
+        restoreStatsOnActivate = false;
         displayInfo = true;
         sentLagMessage = false;
         suspended = false;
-        statusLogTimer = 0;
 
         restockTask.complete();
 
@@ -932,8 +992,12 @@ public class HighwayBuilderTHM extends Module {
             pauseOnLostFocusChanged = false;
         }
 
-        if (mc.player == null || mc.world == null) return;
-        if (!Utils.canUpdate()) return;
+        if (mc.player == null || mc.world == null || !Utils.canUpdate()) {
+            saveReconnectStats();
+            return;
+        }
+
+        clearReconnectStats();
 
         mc.player.input = prevInput;
         mc.options.useKey.setPressed(false);
@@ -941,32 +1005,36 @@ public class HighwayBuilderTHM extends Module {
             mc.options.setPerspective(previousPerspective);
             perspectiveChanged = false;
         }
-        if (Modules.get().get(HotbarManager.class).isActive() && hotbarmanager.get()) { Modules.get().get(HotbarManager.class).toggle();}
-        if (Modules.get().get(AntiDrop.class).isActive() && antidrop.get()) { Modules.get().get(AntiDrop.class).toggle();}
+        if (Modules.get().get(HotbarManager.class).isActive() && hotbarmanager.get()) {
+            Modules.get().get(HotbarManager.class).toggle();
+        }
+        if (Modules.get().get(AntiDrop.class).isActive() && antidrop.get()) {
+            Modules.get().get(AntiDrop.class).toggle();
+        }
 
-            if (displayInfo && printStatistics.get()) {
-                info("Distance: (highlight)%.0f", PlayerUtils.distanceTo(start));
-                info("Blocks broken: (highlight)%d", blocksBroken);
-                info("Blocks placed: (highlight)%d", blocksPlaced);
-            }
-                //webhook send stats part
-            if (sendStatisticsWebhhok.get()) {
-                String webhookUrl = decryptWebhook(encryptedWebhook.get(), decryptkey.get());
-                if (webhookUrl != null) {
-                    double distance = PlayerUtils.distanceTo(start);
+        if (displayInfo && printStatistics.get()) {
+            info("Distance: (highlight)%.0f", PlayerUtils.distanceTo(start));
+            info("Blocks broken: (highlight)%d", blocksBroken);
+            info("Blocks placed: (highlight)%d", blocksPlaced);
+        }
+            //webhook send stats part
+        if (sendStatisticsWebhhok.get()) {
+            String webhookUrl = decryptWebhook(encryptedWebhook.get(), decryptkey.get());
+            if (webhookUrl != null) {
+                double distance = PlayerUtils.distanceTo(start);
 
-                    // Don't send if distance it's smaller than 1
-                    if (distance > 1) {
-                        String playerName = mc.player.getName().getLiteralString();
-                        String statsMessage = String.format("Player: %s , Distance: %.0f , Blocks broken: %d , Blocks placed: %d",
-                            playerName, distance, blocksBroken, blocksPlaced);
-                        sendToWebhook(webhookUrl, statsMessage);
+                // Don't send if distance it's smaller than 1
+                if (distance > 1) {
+                    String playerName = mc.player.getName().getLiteralString();
+                    String statsMessage = String.format("Player: %s , Distance: %.0f , Blocks broken: %d , Blocks placed: %d",
+                        playerName, distance, blocksBroken, blocksPlaced);
+                    sendToWebhook(webhookUrl, statsMessage);
 
-                    }else {
-                        warning("Statistics NOT sent to webhook! Distance too small: (highlight)%.0f", distance);
-                    }
+                }else {
+                    warning("Statistics NOT sent to webhook! Distance too small: (highlight)%.0f", distance);
                 }
             }
+        }
         if (sendStatisticsapi.get()) {
             //Somone please make this code better please
             double distance = PlayerUtils.distanceTo(start);
@@ -987,7 +1055,7 @@ public class HighwayBuilderTHM extends Module {
                     String playerName = mc.player.getName().getLiteralString();
                     String statsMessageapi = String.format("%s:%s:%s:%.0f:%s:%s:%s:%s:%s",
                         THMSystem.get().getHash(), playerName, server, distance, blocksBroken, blocksPlaced, dir, generateTimestamp(), isOnMainHighway());
-                    sendToAPI(statsMessageapi, getPassword(), getAPIHighway(), "statistics");
+                    sendToAPI(statsMessageapi, apiPassword.get(), statisticsApiUrl.get(), "statistics");
                 } else {
                     warning("Statistics NOT sent to Api! Please Calculate the real Distance using the /calculate command in proof-of-work");
                 }
@@ -995,7 +1063,6 @@ public class HighwayBuilderTHM extends Module {
                 warning("Statistics NOT sent to Api! Distance too small: (highlight)%.0f", distance);
             }
         }
-
     }
     @Override
     public void error(String message, Object... args) {
@@ -1007,7 +1074,7 @@ public class HighwayBuilderTHM extends Module {
         }
     }
 
-        private void errorEarly(String message, Object... args) {
+    private void errorEarly(String message, Object... args) {
         super.error(message, args);
 
         displayInfo = false;
@@ -1055,7 +1122,7 @@ public class HighwayBuilderTHM extends Module {
         }
         if (pauseOnLag.get() && TickRate.INSTANCE.getTimeSinceLastTick() > 1.5f) {
             if (!sentLagMessage) {
-                error("Server isn't responding, pausing.");
+                warning("Server isn't responding, pausing.");
                 input.stop();
                 sentLagMessage = true;
                 return;
@@ -1091,6 +1158,7 @@ public class HighwayBuilderTHM extends Module {
 
     @EventHandler
     private void onGameLeave(GameLeftEvent event) {
+        saveReconnectStats();
         notifyDesktop(notifyDisconnect, "THM Highway Builder", "Disconnected while Highway Builder was active.");
         suspended = true;
         inventory = false;

@@ -274,20 +274,27 @@ public class THMUtils {
                 THMAddon.LOG.info("Waiting 10 seconds for baritone to pick up");
                 Thread.sleep(10000);
             } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+                Thread.currentThread().interrupt();
+                return;
             }
             baritone.getPathingBehavior().cancelEverything();
             baritone.getCommandManager().execute("goto " + savedX + " " + savedZ);
-            while (!finishedbar[0]) {
-                if (Math.abs(mc.player.getX() - savedX) == 0 && Math.abs(mc.player.getZ() - savedZ) == 0) {
+            while (!finishedbar[0] && mc.player != null) {
+                if (Math.abs(mc.player.getX() - savedX) <= 0.5 && Math.abs(mc.player.getZ() - savedZ) <= 0.5) {
                     finishedbar[0] = true;
                     baritone.getPathingBehavior().cancelEverything();
+                } else {
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
                 }
             }
         }).start();
 
     }
-    // TODO: Add this to Highway builder so it picks up all the splattered obsidian
     private boolean checkModLoaded(String... modIds)
     {
         boolean loaded = false;
