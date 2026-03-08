@@ -155,7 +155,9 @@ public class DiscordRPC extends Module {
     public void checkRPC() {
         if (mc.currentScreen == null) return;
         DiscordPresence presence = Modules.get().get(DiscordPresence.class);
-        if (presence != null && presence.isActive()) presence.toggle();
+        if (Modules.get().get(DiscordPresence.class) == null) return;
+        assert presence != null;
+        if (presence.isActive()) presence.toggle();
     }
 
     @Override

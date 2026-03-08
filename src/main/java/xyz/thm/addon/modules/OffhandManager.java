@@ -181,7 +181,7 @@ public class OffhandManager extends Module {
     }
 
     @EventHandler
-    public void onReceivePacket(PacketEvent.Send event) {
+    public void onReceivePacket(PacketEvent.Receive event) {
         if (event.packet instanceof PlayerInteractBlockC2SPacket) stopEating();
     }
 

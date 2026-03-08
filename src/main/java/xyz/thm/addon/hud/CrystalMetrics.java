@@ -28,7 +28,6 @@ public class CrystalMetrics extends HudElement {
 
     private final MinecraftClient mc = MinecraftClient.getInstance();
     private static Field entityIdField;
-    private static boolean entityIdLookupFailed;
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgVisuals = settings.createGroup("Visuals");
@@ -65,8 +64,7 @@ public class CrystalMetrics extends HudElement {
                 }
             }
         } catch (Exception e) {
-            THMAddon.LOG.warn("CrystalMetrics entity id lookup failed: {}", e.getMessage());
-            entityIdLookupFailed = true;
+            e.printStackTrace();
         }
     }
 
@@ -90,18 +88,7 @@ public class CrystalMetrics extends HudElement {
         else if (event.packet instanceof PlayerInteractEntityC2SPacket p) {
             Entity t = null;
             if (entityIdField != null) {
-                try {
-                    Object value = entityIdField.get(p);
-                    if (value instanceof Integer id) {
-                        t = mc.world.getEntityById(id);
-                    }
-                } catch (Exception e) {
-                    if (!entityIdLookupFailed) {
-                        THMAddon.LOG.warn("CrystalMetrics entity id read failed: {}", e.getMessage());
-                        entityIdLookupFailed = true;
-                    }
-                    entityIdField = null;
-                }
+                try { t = mc.world.getEntityById((int) entityIdField.get(p)); } catch (Exception ignored) {}
             }
             if (t instanceof EndCrystalEntity) action = true;
         }

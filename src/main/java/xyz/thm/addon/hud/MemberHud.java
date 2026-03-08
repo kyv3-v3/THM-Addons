@@ -4,20 +4,15 @@ import com.google.common.util.concurrent.AtomicDouble;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import meteordevelopment.meteorclient.MeteorClient;
-import meteordevelopment.meteorclient.events.game.GameJoinedEvent;
-import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.settings.BoolSetting;
 import meteordevelopment.meteorclient.settings.ColorSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
-import meteordevelopment.meteorclient.settings.StringSetting;
 import meteordevelopment.meteorclient.systems.hud.HudElement;
 import meteordevelopment.meteorclient.systems.hud.HudElementInfo;
 import meteordevelopment.meteorclient.systems.hud.HudRenderer;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
-import meteordevelopment.orbit.EventHandler;
 import xyz.thm.addon.THMAddon;
 
 import javax.crypto.Cipher;
@@ -35,12 +30,10 @@ public class MemberHud extends HudElement {
 
     public MemberHud() {
         super(INFO);
-        MeteorClient.EVENT_BUS.subscribe(this);
     }
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgColors = settings.createGroup("Colors");
-    private final SettingGroup sgApi = settings.createGroup("API");
 
     public final Setting<Boolean> showSelf = sgGeneral.add(new BoolSetting.Builder()
         .name("show-self")
@@ -85,18 +78,6 @@ public class MemberHud extends HudElement {
         .visible(showBackground::get)
         .build()
     );
-    public final Setting<String> apiPassword = sgApi.add(new StringSetting.Builder()
-        .name("api-password")
-        .description("Password used to decrypt encrypted API URL.")
-        .defaultValue("")
-        .build()
-    );
-    public final Setting<String> apiUrl = sgApi.add(new StringSetting.Builder()
-        .name("api-url")
-        .description("Encrypted or plain API URL used for member data.")
-        .defaultValue("")
-        .build()
-    );
 
     // Inner class to represent a member
     private static class User {
@@ -113,16 +94,14 @@ public class MemberHud extends HudElement {
         }
     }
 
+    public String apiUrl = getAPIMemberHud();
+
+    // Cache variables
     private List<User> cachedMembers = null;
     private long lastCacheTime = 0;
-    private volatile boolean fetchingMembers = false;
     private static final long CACHE_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
 
     private String decryptAPI(String encryptedapi, String password) {
-        if (encryptedapi == null || encryptedapi.isBlank()) return null;
-        if (encryptedapi.startsWith("http://") || encryptedapi.startsWith("https://")) return encryptedapi;
-        if (password == null || password.isBlank()) return null;
-
         try {
             // Derive a 256-bit (32 byte) key from the password using SHA-256
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -158,15 +137,20 @@ public class MemberHud extends HudElement {
         }
     }
 
+    private String getAPIMemberHud() {
+        return Objects.requireNonNullElse(System.getProperty("thm.addon.api.member-hud", System.getenv("THM_ADDON_API_MEMBER_HUD")), "");
+    }
+
+    private String getPassword() {
+        return Objects.requireNonNullElse(System.getProperty("thm.addon.api.password", System.getenv("THM_ADDON_API_PASSWORD")), "");
+    }
+
     private List<User> fetchMembersFromApi() {
         List<User> members = new ArrayList<>();
-        HttpURLConnection connection = null;
 
         try {
-            String decryptedApi = decryptAPI(apiUrl.get(), apiPassword.get());
-            if (decryptedApi == null) return members;
-
-            connection = (HttpURLConnection) new URI(decryptedApi).toURL().openConnection();
+            // Create HTTP connection to the API endpoint
+            HttpURLConnection connection = (HttpURLConnection) new URI(Objects.requireNonNull(decryptAPI(apiUrl, getPassword()))).toURL().openConnection();
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(5000);
@@ -209,10 +193,11 @@ public class MemberHud extends HudElement {
                 String displayName = usernames.length > 0 ? usernames[0] : "Unknown";
                 members.add(new User(displayName, usernames, rank, rankId));
             }
+
+            connection.disconnect();
         } catch (Exception e) {
-            THMAddon.LOG.warn("Error fetching members from API: {}", e.getMessage());
-        } finally {
-            if (connection != null) connection.disconnect();
+            System.err.println("Error fetching members from API: " + e.getMessage());
+            e.printStackTrace();
         }
 
         return members;
@@ -222,37 +207,21 @@ public class MemberHud extends HudElement {
     private List<User> getCachedMembers() {
         long currentTime = System.currentTimeMillis();
 
+        // Check if cache is still valid
         if (cachedMembers != null && (currentTime - lastCacheTime) < CACHE_DURATION) {
             return cachedMembers;
         }
 
-        if (!fetchingMembers) {
-            fetchingMembers = true;
-            new Thread(() -> {
-                try {
-                    cachedMembers = fetchMembersFromApi();
-                    lastCacheTime = System.currentTimeMillis();
-                } finally {
-                    fetchingMembers = false;
-                }
-            }, "thm-member-hud-fetch").start();
-        }
-
-        return cachedMembers != null ? cachedMembers : Collections.emptyList();
+        // Fetch new data from API and update cache
+        cachedMembers = fetchMembersFromApi();
+        lastCacheTime = currentTime;
+        return cachedMembers;
     }
 
-    private void resetCache() {
+    // Reset cache on world join
+    public void onWorldJoin() {
         cachedMembers = null;
         lastCacheTime = 0;
-    }
-    @EventHandler
-    private void onGameJoined(GameJoinedEvent event) {
-        resetCache();
-    }
-
-    @EventHandler
-    private void onGameLeft(GameLeftEvent event) {
-        resetCache();
     }
 
     // Parse hex string with optional '#' prefix
