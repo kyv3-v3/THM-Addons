@@ -86,6 +86,7 @@ import java.util.function.Supplier;
 import java.util.function.Predicate;
 
 import static xyz.thm.addon.utils.THMUtils.*;
+import static xyz.thm.addon.utils.password.*;
 
 @SuppressWarnings("ConstantConditions")
 public class HighwayBuilderTHM extends Module {
@@ -674,32 +675,6 @@ public class HighwayBuilderTHM extends Module {
     public HighwayBuilderTHM() {
         super(THMAddon.MAIN, "THM-HighwayBuilder", "Automatically builds highways according to THMs standards.");
         runInMainMenu = true;
-    }
-
-    private String getPassword() {
-        return getApiSecret("getPassword", "thm.addon.api.password", "THM_ADDON_API_PASSWORD");
-    }
-
-    private String getAPIStatus() {
-        return getApiSecret("getAPIStatus", "thm.addon.api.status", "THM_ADDON_API_STATUS");
-    }
-
-    private String getAPIHighway() {
-        return getApiSecret("getAPIHighway", "thm.addon.api.highway", "THM_ADDON_API_HIGHWAY");
-    }
-
-    private String getApiSecret(String method, String systemProperty, String environmentVariable) {
-        try {
-            Class<?> passwordClass = Class.forName("xyz.thm.addon.utils.password");
-            Object value = passwordClass.getMethod(method).invoke(null);
-
-            if (value instanceof String) {
-                return (String) value;
-            }
-        } catch (Exception ignored) {
-        }
-
-        return Objects.requireNonNullElse(System.getProperty(systemProperty, System.getenv(environmentVariable)), "");
     }
 
     private void saveReconnectStats() {

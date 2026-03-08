@@ -24,6 +24,7 @@ import java.security.MessageDigest;
 import java.util.*;
 
 import static meteordevelopment.meteorclient.MeteorClient.mc;
+import static xyz.thm.addon.utils.password.*;
 
 public class MemberHud extends HudElement {
     public static final HudElementInfo<MemberHud> INFO = new HudElementInfo<>(THMAddon.HUD_GROUP, "THM Member Hud", "Shows all online THM members and ranks", MemberHud::new);
@@ -135,28 +136,6 @@ public class MemberHud extends HudElement {
             THMAddon.LOG.warn("Failed to decrypt API: " + e.getMessage());
             return null;
         }
-    }
-
-    private String getAPIMemberHud() {
-        return getApiSecret("getAPIMemberHud", "thm.addon.api.member-hud", "THM_ADDON_API_MEMBER_HUD");
-    }
-
-    private String getPassword() {
-        return getApiSecret("getPassword", "thm.addon.api.password", "THM_ADDON_API_PASSWORD");
-    }
-
-    private String getApiSecret(String method, String systemProperty, String environmentVariable) {
-        try {
-            Class<?> passwordClass = Class.forName("xyz.thm.addon.utils.password");
-            Object value = passwordClass.getMethod(method).invoke(null);
-
-            if (value instanceof String) {
-                return (String) value;
-            }
-        } catch (Exception ignored) {
-        }
-
-        return Objects.requireNonNullElse(System.getProperty(systemProperty, System.getenv(environmentVariable)), "");
     }
 
     private List<User> fetchMembersFromApi() {
