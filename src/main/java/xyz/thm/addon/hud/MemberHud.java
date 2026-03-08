@@ -138,11 +138,25 @@ public class MemberHud extends HudElement {
     }
 
     private String getAPIMemberHud() {
-        return Objects.requireNonNullElse(System.getProperty("thm.addon.api.member-hud", System.getenv("THM_ADDON_API_MEMBER_HUD")), "");
+        return getApiSecret("getAPIMemberHud", "thm.addon.api.member-hud", "THM_ADDON_API_MEMBER_HUD");
     }
 
     private String getPassword() {
-        return Objects.requireNonNullElse(System.getProperty("thm.addon.api.password", System.getenv("THM_ADDON_API_PASSWORD")), "");
+        return getApiSecret("getPassword", "thm.addon.api.password", "THM_ADDON_API_PASSWORD");
+    }
+
+    private String getApiSecret(String method, String systemProperty, String environmentVariable) {
+        try {
+            Class<?> passwordClass = Class.forName("xyz.thm.addon.utils.password");
+            Object value = passwordClass.getMethod(method).invoke(null);
+
+            if (value instanceof String) {
+                return (String) value;
+            }
+        } catch (Exception ignored) {
+        }
+
+        return Objects.requireNonNullElse(System.getProperty(systemProperty, System.getenv(environmentVariable)), "");
     }
 
     private List<User> fetchMembersFromApi() {

@@ -677,15 +677,29 @@ public class HighwayBuilderTHM extends Module {
     }
 
     private String getPassword() {
-        return Objects.requireNonNullElse(System.getProperty("thm.addon.api.password", System.getenv("THM_ADDON_API_PASSWORD")), "");
+        return getApiSecret("getPassword", "thm.addon.api.password", "THM_ADDON_API_PASSWORD");
     }
 
     private String getAPIStatus() {
-        return Objects.requireNonNullElse(System.getProperty("thm.addon.api.status", System.getenv("THM_ADDON_API_STATUS")), "");
+        return getApiSecret("getAPIStatus", "thm.addon.api.status", "THM_ADDON_API_STATUS");
     }
 
     private String getAPIHighway() {
-        return Objects.requireNonNullElse(System.getProperty("thm.addon.api.highway", System.getenv("THM_ADDON_API_HIGHWAY")), "");
+        return getApiSecret("getAPIHighway", "thm.addon.api.highway", "THM_ADDON_API_HIGHWAY");
+    }
+
+    private String getApiSecret(String method, String systemProperty, String environmentVariable) {
+        try {
+            Class<?> passwordClass = Class.forName("xyz.thm.addon.utils.password");
+            Object value = passwordClass.getMethod(method).invoke(null);
+
+            if (value instanceof String) {
+                return (String) value;
+            }
+        } catch (Exception ignored) {
+        }
+
+        return Objects.requireNonNullElse(System.getProperty(systemProperty, System.getenv(environmentVariable)), "");
     }
 
     private void saveReconnectStats() {
